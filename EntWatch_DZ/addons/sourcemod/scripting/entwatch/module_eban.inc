@@ -83,7 +83,7 @@ void EWM_Eban_CreateTables()
 																										`timestamp_unban` int, \
 																										PRIMARY KEY (id))");
 		T_CreateTables.AddQuery(sSQL_Query);
-		FormatEx(sSQL_Query, sizeof(sSQL_Query), "CREATE TABLE IF NOT EXISTS `EntWatch_Old_Eban`(	`id` int(10) unsigned NOT NULL, \
+		FormatEx(sSQL_Query, sizeof(sSQL_Query), "CREATE TABLE IF NOT EXISTS `EntWatch_Old_Eban`(	`id` int(10) unsigned NOT NULL auto_increment, \
 																									`client_name` varchar(32) NOT NULL, \
 																									`client_steamid` varchar(64) NOT NULL, \
 																									`admin_name` varchar(32) NOT NULL, \
@@ -119,7 +119,7 @@ void EWM_Eban_CreateTables()
 																										`admin_steamid_unban` varchar(64), \
 																										`timestamp_unban` INTEGER)");
 		T_CreateTables.AddQuery(sSQL_Query);																							
-		FormatEx(sSQL_Query, sizeof(sSQL_Query), "CREATE TABLE IF NOT EXISTS `EntWatch_Old_Eban`(	`id` INTEGER PRIMARY KEY, \
+		FormatEx(sSQL_Query, sizeof(sSQL_Query), "CREATE TABLE IF NOT EXISTS `EntWatch_Old_Eban`(	`id` INTEGER PRIMARY KEY AUTOINCREMENT, \
 																									`client_name` varchar(32) NOT NULL, \
 																									`client_steamid` varchar(64) NOT NULL, \
 																									`admin_name` varchar(32) NOT NULL, \
@@ -190,7 +190,8 @@ public void EWM_Eban_BanClient(int iClient, int iAdmin, int iDuration, const cha
 			if(iAdmin != 0)
 			{
 				//Check if admin has permission
-				if (!CheckCommandAccess(iAdmin, "sm_eban_perm", ADMFLAG_ROOT)) {
+				if (!CheckCommandAccess(iAdmin, "sm_eban_perm", ADMFLAG_ROOT))
+				{
 					CPrintToChat(iAdmin, "%s%t %s%t", g_SchemeConfig.Color_Tag, "EW_Tag", g_SchemeConfig.Color_Warning, "Not have permission pEBan");
 					return;
 				}
@@ -224,7 +225,8 @@ public void EWM_Eban_BanClient(int iClient, int iAdmin, int iDuration, const cha
 			if(iAdmin != 0 && iBanDuration >= 720)
 			{
 				//Check if admin has permission
-				if (!CheckCommandAccess(iAdmin, "sm_eban_long", ADMFLAG_ROOT)) {
+				if (!CheckCommandAccess(iAdmin, "sm_eban_long", ADMFLAG_ROOT))
+				{
 					CPrintToChat(iAdmin, "%s%t %s%t", g_SchemeConfig.Color_Tag, "EW_Tag", g_SchemeConfig.Color_Warning, "Not have permission lEBan");
 					return;
 				}
@@ -289,11 +291,20 @@ public void EWM_Eban_UnBanClient(int iClient, int iAdmin, const char[] sReason)
 		int iBanDuration = g_EbanClients[iClient].Duration;
 		if (iBanDuration == 0)
 		{
-				//Check if admin has permission
-				if (!CheckCommandAccess(iAdmin, "sm_eban_perm", ADMFLAG_ROOT)) {
-					CPrintToChat(iAdmin, "%s%t %s%t", g_SchemeConfig.Color_Tag, "EW_Tag", g_SchemeConfig.Color_Warning, "Not have permission rEBan");
-					return;
-				}
+			//Check if admin has permission
+			if (!CheckCommandAccess(iAdmin, "sm_eban_perm", ADMFLAG_ROOT))
+			{
+				CPrintToChat(iAdmin, "%s%t %s%t", g_SchemeConfig.Color_Tag, "EW_Tag", g_SchemeConfig.Color_Warning, "Not have permission rEBan");
+				return;
+			}
+		}else if(iBanDuration >= 720)
+		{
+			//Check if admin has permission
+			if (!CheckCommandAccess(iAdmin, "sm_eban_long", ADMFLAG_ROOT))
+			{
+				CPrintToChat(iAdmin, "%s%t %s%t", g_SchemeConfig.Color_Tag, "EW_Tag", g_SchemeConfig.Color_Warning, "Not have permission lEBan");
+				return;
+			}
 		}
 		
 		//Admin
@@ -320,7 +331,8 @@ public void EWM_Eban_UnBanClient(int iClient, int iAdmin, const char[] sReason)
 			FormatEx(sSQL_Query, sizeof(sSQL_Query), "UPDATE `EntWatch_Current_Eban` SET `reason_unban`='%s', `admin_name_unban`='%s', `admin_steamid_unban`='%s', `timestamp_unban`=%d \
 														WHERE `client_steamid`='%s' and `server`='%s' and `admin_steamid_unban` IS NULL", szReason, szAdmin_Name, sAdmin_SteamID, GetTime(), sClient_SteamID, g_SchemeConfig.Server_Name);
 			T_UnBan.AddQuery(sSQL_Query);
-			FormatEx(sSQL_Query, sizeof(sSQL_Query), "INSERT INTO `EntWatch_Old_Eban` SELECT * FROM `EntWatch_Current_Eban` \
+			FormatEx(sSQL_Query, sizeof(sSQL_Query), "INSERT INTO `EntWatch_Old_Eban` (`client_name`, `client_steamid`, `admin_name`, `admin_steamid`, `server`, `duration`, `timestamp_issued`, `reason`, `reason_unban`, `admin_name_unban`, `admin_steamid_unban`, `timestamp_unban`) \
+														SELECT `client_name`, `client_steamid`, `admin_name`, `admin_steamid`, `server`, `duration`, `timestamp_issued`, `reason`, `reason_unban`, `admin_name_unban`, `admin_steamid_unban`, `timestamp_unban` FROM `EntWatch_Current_Eban` \
 														WHERE `client_steamid`='%s' and `server`='%s'", sClient_SteamID, g_SchemeConfig.Server_Name);
 			T_UnBan.AddQuery(sSQL_Query);
 		}
@@ -463,7 +475,8 @@ void EWM_Eban_SQLTCallBackOfflineUnban(Handle hDatabase, Handle hResults, const 
 				FormatEx(sSQL_Query, sizeof(sSQL_Query), "UPDATE `EntWatch_Current_Eban` SET `reason_unban`='Expired', `admin_name_unban`='Console', `admin_steamid_unban`='SERVER', `timestamp_unban`=%d \
 															WHERE `id`=%d", iTime, iCurrentID);
 				T_UnBan.AddQuery(sSQL_Query);
-				FormatEx(sSQL_Query, sizeof(sSQL_Query), "INSERT INTO `EntWatch_Old_Eban` SELECT * FROM `EntWatch_Current_Eban` \
+				FormatEx(sSQL_Query, sizeof(sSQL_Query), "INSERT INTO `EntWatch_Old_Eban` (`client_name`, `client_steamid`, `admin_name`, `admin_steamid`, `server`, `duration`, `timestamp_issued`, `reason`, `reason_unban`, `admin_name_unban`, `admin_steamid_unban`, `timestamp_unban`) \
+															SELECT `client_name`, `client_steamid`, `admin_name`, `admin_steamid`, `server`, `duration`, `timestamp_issued`, `reason`, `reason_unban`, `admin_name_unban`, `admin_steamid_unban`, `timestamp_unban` FROM `EntWatch_Current_Eban` \
 															WHERE `id`=%d", iCurrentID);
 				T_UnBan.AddQuery(sSQL_Query);
 			}
@@ -685,7 +698,8 @@ public Action EWM_Eban_Command_Status(int iClient, int iArgs)
 					FormatTime(sIssuedBuf, sizeof(sIssuedBuf), NULL_STRING, g_EbanClients[iTarget].TimeStamp_Issued);
 					FormatEx(sBuff, sizeof(sBuff), "%T: %i %T: %s", "Duration", iClient, g_EbanClients[iTarget].Duration, "Issued", iClient, sIssuedBuf);
 				}
-				CReplyToCommand(iClient, "%s%t %s%t %s%N %s%t. %t: %s%s%s(%s%s%s) %s %t: %s", g_SchemeConfig.Color_Tag, "EW_Tag", g_SchemeConfig.Color_Warning, "Player", g_SchemeConfig.Color_Name, iTarget, g_SchemeConfig.Color_Warning, "Has a Restrict", "Admin", g_SchemeConfig.Color_Name, g_EbanClients[iTarget].Admin_Name, g_SchemeConfig.Color_Warning, g_SchemeConfig.Color_SteamID, g_EbanClients[iTarget].Admin_SteamID, g_SchemeConfig.Color_Warning, sBuff, "Reason", g_EbanClients[iTarget].Reason);
+				CReplyToCommand(iClient, "%s%t %s%t %s%N %s%t.", g_SchemeConfig.Color_Tag, "EW_Tag", g_SchemeConfig.Color_Warning, "Player", g_SchemeConfig.Color_Name, iTarget, g_SchemeConfig.Color_Warning, "Has a Restrict");
+				CReplyToCommand(iClient, "%s%t %s%t: %s%s%s(%s%s%s) %s %t: %s", g_SchemeConfig.Color_Tag, "EW_Tag", g_SchemeConfig.Color_Warning, "Admin", g_SchemeConfig.Color_Name, g_EbanClients[iTarget].Admin_Name, g_SchemeConfig.Color_Warning, g_SchemeConfig.Color_SteamID, g_EbanClients[iTarget].Admin_SteamID, g_SchemeConfig.Color_Warning, sBuff, "Reason", g_EbanClients[iTarget].Reason);
 			}else CReplyToCommand(iClient, "%s%t %s%t %s%N %s%t", g_SchemeConfig.Color_Tag, "EW_Tag", g_SchemeConfig.Color_Warning, "Player", g_SchemeConfig.Color_Name, iTarget, g_SchemeConfig.Color_Warning, "Is not restricted");
 			return Plugin_Handled;
 		}
@@ -703,7 +717,8 @@ public Action EWM_Eban_Command_Status(int iClient, int iArgs)
 				FormatTime(sIssuedBuf, sizeof(sIssuedBuf), NULL_STRING, g_EbanClients[iClient].TimeStamp_Issued);
 				FormatEx(sBuff, sizeof(sBuff), "%T: %i %T: %s", "Duration", iClient, g_EbanClients[iClient].Duration, "Issued", iClient, sIssuedBuf);
 			}
-			CReplyToCommand(iClient, "%s%t %s%t%s. %t: %s%s%s(%s%s%s) %s %t: %s", g_SchemeConfig.Color_Tag, "EW_Tag", g_SchemeConfig.Color_Disabled, "Status restricted", g_SchemeConfig.Color_Warning, "Admin", g_SchemeConfig.Color_Name, g_EbanClients[iClient].Admin_Name, g_SchemeConfig.Color_Warning, g_SchemeConfig.Color_SteamID, g_EbanClients[iClient].Admin_SteamID, g_SchemeConfig.Color_Warning, sBuff, "Reason", g_EbanClients[iClient].Reason);
+			CReplyToCommand(iClient, "%s%t %s%t%s.", g_SchemeConfig.Color_Tag, "EW_Tag", g_SchemeConfig.Color_Disabled, "Status restricted", g_SchemeConfig.Color_Warning);
+			CReplyToCommand(iClient, "%s%t %s%t: %s%s%s(%s%s%s) %s %t: %s", g_SchemeConfig.Color_Tag, "EW_Tag", g_SchemeConfig.Color_Warning, "Admin", g_SchemeConfig.Color_Name, g_EbanClients[iClient].Admin_Name, g_SchemeConfig.Color_Warning, g_SchemeConfig.Color_SteamID, g_EbanClients[iClient].Admin_SteamID, g_SchemeConfig.Color_Warning, sBuff, "Reason", g_EbanClients[iClient].Reason);
 		}else CReplyToCommand(iClient, "%s%t %s%t", g_SchemeConfig.Color_Tag, "EW_Tag", g_SchemeConfig.Color_Enabled, "Status unrestricted");
 	}
 	return Plugin_Handled;

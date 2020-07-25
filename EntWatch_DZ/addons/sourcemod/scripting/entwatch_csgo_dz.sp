@@ -1,5 +1,6 @@
 #pragma semicolon 1
 #pragma newdecls required
+#pragma dynamic 131072
 #include <sourcemod>
 #include <sdktools>
 #include <sdkhooks>
@@ -71,7 +72,7 @@ public Plugin myinfo =
 	name = "EntWatch",
 	author = "DarkerZ[RUS]",
 	description = "Notify players about entity interactions.",
-	version = "3.DZ.14",
+	version = "3.DZ.21",
 	url = "dark-skill.ru"
 };
  
@@ -106,13 +107,22 @@ public void OnPluginStart()
 	HookConVarChange(g_hCvar_Delay_Use, Cvar_Main_Changed);
 	HookConVarChange(g_hCvar_BlockEPick, Cvar_Main_Changed);
 	
+	//Fix for plugin reload (?)
+	g_bTeamOnly = GetConVarBool(g_hCvar_TeamOnly);
+	g_iDelayUse = GetConVarInt(g_hCvar_Delay_Use);
+	g_bBlockEPick = GetConVarBool(g_hCvar_BlockEPick);
+	
 	//Hook Events
 	HookEvent("round_start", Event_RoundStart, EventHookMode_Pre);
 	HookEvent("round_end", Event_RoundEnd, EventHookMode_Pre);
 	HookEvent("player_death", Event_PlayerDeath, EventHookMode_Pre);
+	HookEvent("player_team", Event_PlayerTeam, EventHookMode_Pre);
 	
 	//Hook Output Right-Click
 	HookEntityOutput("game_ui", "PressedAttack2", Event_GameUI_RightClick);
+	
+	//Hook Output OutValue
+	HookEntityOutput("math_counter", "OutValue", Event_OutValue);
 	
 	CreateTimer(1.0, Timer_Cooldowns, _, TIMER_REPEAT);
 	
@@ -249,7 +259,24 @@ public Action Event_RoundEnd(Event hEvent, const char[] sName, bool bDontBroadca
 	}
 }
 
+public Action Event_PlayerTeam(Event hEvent, const char[] sName, bool bDontBroadcast)
+{
+	int team = GetEventInt(hEvent, "team");
+	
+	if (team != 1) return Plugin_Continue;
+	
+	EWM_Drop_Forward(hEvent); //Re-use code for death and team changes
+	
+	return Plugin_Continue;
+}
+
 public Action Event_PlayerDeath(Event hEvent, const char[] sName, bool bDontBroadcast)
+{
+	EWM_Drop_Forward(hEvent); //Re-use code for death and team changes
+	return Plugin_Continue;
+}
+
+stock void EWM_Drop_Forward(Handle hEvent)
 {
 	int iClient = GetClientOfUserId(GetEventInt(hEvent, "userid"));
 
@@ -282,7 +309,7 @@ public Action Event_PlayerDeath(Event hEvent, const char[] sName, bool bDontBroa
 						#endif
 						
 						#if defined EW_MODULE_CLANTAG
-						EWM_Clantag_PlayerDeath_Drop(ItemTest, iClient);
+						EWM_Clantag_PlayerDeath_Drop(iClient);
 						#endif
 					}
 					else
@@ -294,21 +321,17 @@ public Action Event_PlayerDeath(Event hEvent, const char[] sName, bool bDontBroa
 							#endif
 							
 							#if defined EW_MODULE_CLANTAG
-							EWM_Clantag_PlayerDeath(ItemTest, iClient);
+							EWM_Clantag_PlayerDeath(iClient);
 							#endif
 							AcceptEntityInput(ItemTest.WeaponID, "Kill");
 						}else
 						{
 							#if defined EW_MODULE_CHAT
-							if(ItemTest.Chat)
-							{
-								SDKHooks_DropWeapon(iClient, ItemTest.WeaponID);
-								EWM_Chat_PlayerDeath_Drop(ItemTest, iClient);
-							}
+							if(ItemTest.Chat) EWM_Chat_PlayerDeath_Drop(ItemTest, iClient);
 							#endif
 							
 							#if defined EW_MODULE_CLANTAG
-							EWM_Clantag_PlayerDeath_Drop(ItemTest, iClient);
+							EWM_Clantag_PlayerDeath_Drop(iClient);
 							#endif
 							
 							SDKHooks_DropWeapon(iClient, ItemTest.WeaponID);
@@ -344,6 +367,7 @@ public void OnClientCookiesCached(int iClient)
 
 public void OnClientPostAdminCheck(int iClient)
 {
+	if(!IsValidClient(iClient) || IsFakeClient(iClient)) return;
 	#if defined EW_MODULE_OFFLINE_EBAN
 	EWM_OfflineEban_OnClientPostAdminCheck(iClient);
 	#endif
@@ -388,11 +412,7 @@ public void OnClientDisconnect(int iClient)
 						}else
 						{
 							#if defined EW_MODULE_CHAT
-							if(ItemTest.Chat)
-							{
-								SDKHooks_DropWeapon(iClient, ItemTest.WeaponID);
-								EWM_Chat_Disconnect_Drop(ItemTest, iClient);
-							} else
+							if(ItemTest.Chat) EWM_Chat_Disconnect_Drop(ItemTest, iClient);
 							#endif
 							
 							SDKHooks_DropWeapon(iClient, ItemTest.WeaponID);
@@ -458,13 +478,13 @@ stock void LoadConfig()
 		do
 		{
 			class_ItemConfig NewItem;
-			KvGetString(hKeyValues, "name", sBuffer_temp, sizeof(sBuffer_temp));
+			KvGetString(hKeyValues, "name", sBuffer_temp, sizeof(sBuffer_temp), "");
 			FormatEx(NewItem.Name, sizeof(NewItem.Name), "%s", sBuffer_temp);
 
-			KvGetString(hKeyValues, "shortname", sBuffer_temp, sizeof(sBuffer_temp));
+			KvGetString(hKeyValues, "shortname", sBuffer_temp, sizeof(sBuffer_temp), "");
 			FormatEx(NewItem.ShortName, sizeof(NewItem.ShortName), "%s", sBuffer_temp);
 
-			KvGetString(hKeyValues, "color", sBuffer_temp, sizeof(sBuffer_temp));
+			KvGetString(hKeyValues, "color", sBuffer_temp, sizeof(sBuffer_temp), "");
 			FormatEx(NewItem.Color, sizeof(NewItem.Color), "%s", sBuffer_temp);
 
 			NewItem.GlowColor[0]=255;
@@ -499,58 +519,61 @@ stock void LoadConfig()
 			else if(StrEqual(sBuffer_temp,"{gray}",false)){NewItem.GlowColor[0]=128;NewItem.GlowColor[1]=128;NewItem.GlowColor[2]=128;}
 			#endif
 			
-			KvGetString(hKeyValues, "buttonclass", sBuffer_temp, sizeof(sBuffer_temp));
+			KvGetString(hKeyValues, "buttonclass", sBuffer_temp, sizeof(sBuffer_temp), "");
 			FormatEx(NewItem.ButtonClass, sizeof(NewItem.ButtonClass), "%s", sBuffer_temp);
 			
-			KvGetString(hKeyValues, "filtername", sBuffer_temp, sizeof(sBuffer_temp));
+			KvGetString(hKeyValues, "filtername", sBuffer_temp, sizeof(sBuffer_temp), "");
 			FormatEx(NewItem.FilterName, sizeof(NewItem.FilterName), "%s", sBuffer_temp);
 			
-			KvGetString(hKeyValues, "blockpickup", sBuffer_temp, sizeof(sBuffer_temp));
+			KvGetString(hKeyValues, "blockpickup", sBuffer_temp, sizeof(sBuffer_temp), "false");
 			NewItem.BlockPickup = StrEqual(sBuffer_temp, "true", false);
 			
-			KvGetString(hKeyValues, "allowtransfer", sBuffer_temp, sizeof(sBuffer_temp));
+			KvGetString(hKeyValues, "allowtransfer", sBuffer_temp, sizeof(sBuffer_temp), "false");
 			NewItem.AllowTransfer = StrEqual(sBuffer_temp, "true", false);
 			
-			KvGetString(hKeyValues, "forcedrop", sBuffer_temp, sizeof(sBuffer_temp));
+			KvGetString(hKeyValues, "forcedrop", sBuffer_temp, sizeof(sBuffer_temp), "false");
 			NewItem.ForceDrop = StrEqual(sBuffer_temp, "true", false);
 			
-			KvGetString(hKeyValues, "chat", sBuffer_temp, sizeof(sBuffer_temp));
+			KvGetString(hKeyValues, "chat", sBuffer_temp, sizeof(sBuffer_temp), "false");
 			NewItem.Chat = StrEqual(sBuffer_temp, "true", false);
 			
-			KvGetString(hKeyValues, "chat_uses", sBuffer_temp, sizeof(sBuffer_temp));
+			KvGetString(hKeyValues, "chat_uses", sBuffer_temp, sizeof(sBuffer_temp), "false");
 			NewItem.Chat_Uses = StrEqual(sBuffer_temp, "true", false);
 			
-			KvGetString(hKeyValues, "hud", sBuffer_temp, sizeof(sBuffer_temp));
+			KvGetString(hKeyValues, "hud", sBuffer_temp, sizeof(sBuffer_temp), "false");
 			NewItem.Hud = StrEqual(sBuffer_temp, "true", false);
 			
-			KvGetString(hKeyValues, "hammerid", sBuffer_temp, sizeof(sBuffer_temp));
+			KvGetString(hKeyValues, "hammerid", sBuffer_temp, sizeof(sBuffer_temp), "0");
 			NewItem.HammerID = StringToInt(sBuffer_temp);
 			
-			KvGetString(hKeyValues, "mode", sBuffer_temp, sizeof(sBuffer_temp));
+			KvGetString(hKeyValues, "energyid", sBuffer_temp, sizeof(sBuffer_temp), "0");
+			NewItem.EnergyID = StringToInt(sBuffer_temp);
+			
+			KvGetString(hKeyValues, "mode", sBuffer_temp, sizeof(sBuffer_temp), "0");
 			NewItem.Mode = StringToInt(sBuffer_temp);
 			
-			KvGetString(hKeyValues, "maxuses", sBuffer_temp, sizeof(sBuffer_temp));
+			KvGetString(hKeyValues, "maxuses", sBuffer_temp, sizeof(sBuffer_temp), "0");
 			NewItem.MaxUses = StringToInt(sBuffer_temp);
 			
-			KvGetString(hKeyValues, "cooldown", sBuffer_temp, sizeof(sBuffer_temp));
+			KvGetString(hKeyValues, "cooldown", sBuffer_temp, sizeof(sBuffer_temp), "0");
 			NewItem.CoolDown = StringToInt(sBuffer_temp);
 			
 			if(!StrEqual(NewItem.ButtonClass, "game_ui"))
 			{
-				KvGetString(hKeyValues, "buttonid", sBuffer_temp, sizeof(sBuffer_temp));
+				KvGetString(hKeyValues, "buttonid", sBuffer_temp, sizeof(sBuffer_temp), "0");
 				NewItem.ButtonID = StringToInt(sBuffer_temp);
 			}else
 			{
 				NewItem.ButtonID = -5;
 			}
 			
-			KvGetString(hKeyValues, "trigger", sBuffer_temp, sizeof(sBuffer_temp));
+			KvGetString(hKeyValues, "trigger", sBuffer_temp, sizeof(sBuffer_temp), "0");
 			NewItem.Trigger = StringToInt(sBuffer_temp);
 			
-			KvGetString(hKeyValues, "pt_spawner", sBuffer_temp, sizeof(sBuffer_temp));
+			KvGetString(hKeyValues, "pt_spawner", sBuffer_temp, sizeof(sBuffer_temp), "");
 			FormatEx(NewItem.Spawner, sizeof(NewItem.Spawner), "%s", sBuffer_temp);
 			
-			KvGetString(hKeyValues, "physbox", sBuffer_temp, sizeof(sBuffer_temp));
+			KvGetString(hKeyValues, "physbox", sBuffer_temp, sizeof(sBuffer_temp), "false");
 			NewItem.PhysBox = StrEqual(sBuffer_temp, "true", false);
 			
 			g_ItemConfig.PushArray(NewItem, sizeof(NewItem));
@@ -663,6 +686,13 @@ public bool RegisterItem(class_ItemConfig ItemConfig, int iEntity, int iHammerID
 		NewItem.Chat_Uses = ItemConfig.Chat_Uses;
 		NewItem.Hud = ItemConfig.Hud;
 		NewItem.HammerID = ItemConfig.HammerID;
+		
+		if(ItemConfig.EnergyID==0) NewItem.EnergyID = INVALID_ENT_REFERENCE;
+			else NewItem.EnergyID = ItemConfig.EnergyID;
+		NewItem.MathID = INVALID_ENT_REFERENCE;
+		NewItem.MathValue = -1;
+		NewItem.MathValueMax = -1;
+		
 		NewItem.Mode = ItemConfig.Mode;
 		NewItem.MaxUses = ItemConfig.MaxUses;
 		NewItem.CoolDown = ItemConfig.CoolDown;
@@ -714,9 +744,28 @@ public bool RegisterButton(class_ItemList ItemInstance, int iEntity)
 		Entity_GetParentName(iEntity, Item_Weapon_Parent, sizeof(Item_Weapon_Parent));
 		if (!StrEqual(Item_Weapon_Targetname,"") && StrEqual(Item_Weapon_Targetname, Item_Weapon_Parent))
 		{
-			if(ItemInstance.ButtonID == INVALID_ENT_REFERENCE) ItemInstance.ButtonID = Entity_GetHammerID(iEntity);
+			if(ItemInstance.ButtonID == INVALID_ENT_REFERENCE) ItemInstance.ButtonID = Entity_GetHammerID(iEntity); //Default the first button spawned will be the main button. Need to module use_priority
 			SDKHookEx(iEntity, SDKHook_Use, OnButtonUse);
 			ItemInstance.ButtonsArray.Push(iEntity);
+			return true;
+		}
+	}
+	return false;
+}
+
+public bool RegisterMath(class_ItemList ItemInstance, int iEntity)
+{
+	if (IsValidEntity(ItemInstance.WeaponID))
+	{
+		int hammerID = Entity_GetHammerID(iEntity);
+		if (ItemInstance.EnergyID == hammerID)
+		{
+			ItemInstance.MathID = iEntity;
+			int max = RoundFloat(GetEntPropFloat(iEntity, Prop_Data, "m_flMax"));
+			int value = GetCounterValue(iEntity);
+			if (ItemInstance.Mode == 6) ItemInstance.MathValue = value;
+			else if (ItemInstance.Mode == 7) ItemInstance.MathValue = (max - value);
+			ItemInstance.MathValueMax = max;
 			return true;
 		}
 	}
@@ -730,6 +779,7 @@ public void OnEntityCreated(int iEntity, const char[] sClassname)
 		if(StrContains(sClassname, "weapon_", false) != -1) SDKHook(iEntity, SDKHook_SpawnPost, OnItemSpawned);
 		else if(StrEqual(sClassname,"func_button")||StrEqual(sClassname,"func_rot_button")||
 			StrEqual(sClassname,"func_door")||StrEqual(sClassname,"func_door_rotating")) SDKHook(iEntity, SDKHook_SpawnPost, OnButtonSpawned);
+		else if (StrEqual(sClassname,"math_counter")) SDKHook(iEntity, SDKHook_SpawnPost, OnMathSpawned);
 		#if defined EW_MODULE_EBAN
 		else if(StrContains(sClassname, "trigger_", false) != -1) SDKHook(iEntity, SDKHook_SpawnPost, OnTriggerSpawned);
 		#endif
@@ -747,12 +797,13 @@ public void OnEntityDestroyed(int iEntity)
 		GetEdictClassname(iEntity, sClassname, sizeof(sClassname));
 		if(StrContains(sClassname, "weapon_", false) != -1)
 		{
-			for(int i = 0; i<g_ItemList.Length; i++)
+			for(int i = 0; i < g_ItemList.Length; i++)
 			{
 				class_ItemList ItemTest;
 				g_ItemList.GetArray(i, ItemTest, sizeof(ItemTest));
 				if(ItemTest.WeaponID == iEntity)
 				{
+					ItemTest.MathID = INVALID_ENT_REFERENCE;
 					ItemTest.WeaponID = INVALID_ENT_REFERENCE;
 					ItemTest.OwnerID = INVALID_ENT_REFERENCE;
 					ItemTest.GlowEnt = INVALID_ENT_REFERENCE;
@@ -782,15 +833,46 @@ public void OnItemSpawned(int iEntity)
 	}
 }
 
-public void OnButtonSpawned(int iEntity)
+public void OnMathSpawned(int iEntity)
+{
+	//In case the math entity spawns just before the weapon entity (?)
+	CreateTimer(0.5, Timer_OnMathSpawned, iEntity);
+	
+}
+
+public Action Timer_OnMathSpawned(Handle timer, int iEntity)
 {
 	if(!IsValidEntity(iEntity) || !g_bConfigLoaded) return;
 	
-	for(int i = 0; i<g_ItemList.Length; i++)
+	for(int i = 0; i < g_ItemList.Length; i++)
 	{
 		class_ItemList ItemTest;
 		g_ItemList.GetArray(i, ItemTest, sizeof(ItemTest));
-		if(RegisterButton(ItemTest,iEntity))
+		if (RegisterMath(ItemTest, iEntity))
+		{
+			g_ItemList.SetArray(i, ItemTest, sizeof(ItemTest));
+			return;
+		}
+	}
+}
+
+public void OnButtonSpawned(int iEntity) //Button with parent spawns after weapon entity. With timer button don't register if item spawns with module items_spawn
+{
+	if(!IsValidEntity(iEntity) || !g_bConfigLoaded) return;
+	
+	char sClassname[32];
+	GetEdictClassname(iEntity, sClassname, sizeof(sClassname));
+	if (StrEqual(sClassname,"func_door") || StrEqual(sClassname,"func_door_rotating"))
+	{
+		int spawnflags = GetEntProp(iEntity, Prop_Data, "m_spawnflags");
+		if (!(spawnflags & 256))return; //The entity cannot be pressed so don't register it as a button
+	}
+	
+	for(int i = 0; i < g_ItemList.Length; i++)
+	{
+		class_ItemList ItemTest;
+		g_ItemList.GetArray(i, ItemTest, sizeof(ItemTest));
+		if (RegisterButton(ItemTest,iEntity))
 		{
 			g_ItemList.SetArray(i, ItemTest, sizeof(ItemTest));
 			return;
@@ -800,6 +882,12 @@ public void OnButtonSpawned(int iEntity)
 
 #if defined EW_MODULE_EBAN
 public void OnTriggerSpawned(int iEntity)
+{
+	//In case the trigger entity spawns just before the weapon entity (?)
+	CreateTimer(0.5, Timer_OnTriggerSpawned, iEntity);
+}
+
+public Action Timer_OnTriggerSpawned(Handle timer, int iEntity)
 {
 	if(!IsValidEntity(iEntity) || !g_bConfigLoaded) return;
 	
@@ -823,10 +911,7 @@ public void OnTriggerSpawned(int iEntity)
 
 public Action OnTrigger(int iEntity, int iClient)
 {
-    if (IsValidClient(iClient) && IsClientConnected(iClient))
-	{
-		if (g_EbanClients[iClient].Banned) return Plugin_Handled;
-    }
+    if (IsValidClient(iClient) && IsClientConnected(iClient)) if (g_EbanClients[iClient].Banned) return Plugin_Handled;
 
     return Plugin_Continue;
 }
@@ -839,6 +924,11 @@ public Action OnButtonUse(int iButton, int iActivator, int iCaller, UseType uTyp
 {
 	if(g_bConfigLoaded && IsValidEdict(iButton))
 	{
+		//DEBUG SHIT ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+		//char edebug[32];
+		//Entity_GetTargetName(iButton, edebug, sizeof(edebug));
+		//PrintToConsoleAll("[EntWatch] PRESS Button %s by %N - ID %i", edebug, iActivator, iActivator);
+		
 		int iOffset = FindDataMapInfo(iButton, "m_bLocked");
 		if (iOffset != -1 && GetEntData(iButton, iOffset, 1)) return Plugin_Handled;
 
@@ -852,92 +942,130 @@ public Action OnButtonUse(int iButton, int iActivator, int iCaller, UseType uTyp
 				{
 					if(ItemTest.ButtonsArray.Get(j) == iButton)
 					{
+						//DEBUG SHIT ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+						//PrintToConsoleAll("[EntWatch] DEBUG: Name - %s, WeaponID - %i", ItemTest.Name, ItemTest.WeaponID);
+						//PrintToConsoleAll("[EntWatch] DEBUG: Uses - %i", ItemTest.Uses);
+						//PrintToConsoleAll("[EntWatch] DEBUG: CooldownTime - %i", ItemTest.CoolDownTime);
+						//PrintToConsoleAll("[EntWatch] DEBUG: Owner - %i", ItemTest.OwnerID);
+						//if (!IsValidClient(ItemTest.OwnerID))
+						//{
+						//	LogError("No valid client for %s - %i", ItemTest.Name, ItemTest.OwnerID);
+						//}
+						//PrintToConsoleAll("[EntWatch] DEBUG: Chat - %s", ItemTest.Chat ? "True" : "False");
+						//PrintToConsoleAll("[EntWatch] DEBUG: Mode - %i", ItemTest.Mode);
+						//PrintToConsoleAll("[EntWatch] DEBUG: Delay - %i", ItemTest.Delay);
+						//PrintToConsoleAll("[EntWatch] DEBUG: ButtonID - %i", ItemTest.ButtonID);
+						//PrintToConsoleAll("[EntWatch] DEBUG: iButton - %i", iButton);
+						//PrintToConsoleAll("[EntWatch] DEBUG: HammerID of iButton - %i", Entity_GetHammerID(iButton));
+						
+						
 						if(ItemTest.OwnerID != iActivator && ItemTest.OwnerID != iCaller) return Plugin_Handled;
 							else if(!(StrEqual(ItemTest.FilterName,""))) DispatchKeyValue(iActivator, "targetname", ItemTest.FilterName);
-							
+						
 						if(ItemTest.Delay > 0) return Plugin_Handled;
 						
-						if(ItemTest.ButtonID != INVALID_ENT_REFERENCE && ItemTest.ButtonID == Entity_GetHammerID(iButton))
+						if(ItemTest.ButtonID != INVALID_ENT_REFERENCE && ItemTest.ButtonID != Entity_GetHammerID(iButton)) return Plugin_Changed;
+						
+						switch (ItemTest.Mode)
 						{
-							switch (ItemTest.Mode)
-							{
-								case 2: 
-									if(ItemTest.CoolDownTime <= -1)
+							case 2: 
+								if(ItemTest.CoolDownTime <= -1)
+								{
+									#if defined EW_MODULE_ELOGS
+									EWM_ELogs_Use(ItemTest, iActivator);
+									#endif
+									#if defined EW_MODULE_CHAT
+									if(ItemTest.Chat || ItemTest.Chat_Uses) EWM_Chat_Use(ItemTest, iActivator);
+									#endif
+									
+									ItemTest.Delay = 1;
+									ItemTest.CoolDownTime = ItemTest.CoolDown;
+									g_ItemList.SetArray(i, ItemTest, sizeof(ItemTest));
+									return Plugin_Changed;
+								}
+							case 3:
+								if(ItemTest.Uses < ItemTest.MaxUses)
+								{
+									#if defined EW_MODULE_ELOGS
+									EWM_ELogs_Use(ItemTest, iActivator);
+									#endif
+									#if defined EW_MODULE_CHAT
+									if(ItemTest.Chat || ItemTest.Chat_Uses) EWM_Chat_Use(ItemTest, iActivator);
+									#endif
+									
+									ItemTest.Delay = 1;
+									ItemTest.Uses++;
+									g_ItemList.SetArray(i, ItemTest, sizeof(ItemTest));
+									return Plugin_Changed;
+								}
+							case 4:
+								if(ItemTest.Uses < ItemTest.MaxUses && ItemTest.CoolDownTime <= -1)
+								{
+									#if defined EW_MODULE_ELOGS
+									EWM_ELogs_Use(ItemTest, iActivator);
+									#endif
+									#if defined EW_MODULE_CHAT
+									if(ItemTest.Chat || ItemTest.Chat_Uses) EWM_Chat_Use(ItemTest, iActivator);
+									#endif
+									
+									ItemTest.Delay = 1;
+									ItemTest.CoolDownTime = ItemTest.CoolDown;
+									ItemTest.Uses++;
+									g_ItemList.SetArray(i, ItemTest, sizeof(ItemTest));
+									return Plugin_Changed;
+								}
+							case 5:
+								if(ItemTest.CoolDownTime <= -1)
+								{
+									#if defined EW_MODULE_ELOGS
+									EWM_ELogs_Use(ItemTest, iActivator);
+									#endif
+									#if defined EW_MODULE_CHAT
+									if(ItemTest.Chat || ItemTest.Chat_Uses) EWM_Chat_Use(ItemTest, iActivator);
+									#endif
+									
+									ItemTest.Delay = 1;
+									ItemTest.Uses++;
+									if(ItemTest.Uses >= ItemTest.MaxUses)
 									{
-										#if defined EW_MODULE_ELOGS
-										EWM_ELogs_Use(ItemTest, iActivator);
-										#endif
-										#if defined EW_MODULE_CHAT
-										if(ItemTest.Chat || ItemTest.Chat_Uses) EWM_Chat_Use(ItemTest, iActivator);
-										#endif
-										
-										ItemTest.Delay = 1;
 										ItemTest.CoolDownTime = ItemTest.CoolDown;
-										g_ItemList.SetArray(i, ItemTest, sizeof(ItemTest));
-										return Plugin_Changed;
+										ItemTest.Uses = 0;
 									}
-								case 3:
-									if(ItemTest.Uses < ItemTest.MaxUses)
-									{
-										#if defined EW_MODULE_ELOGS
-										EWM_ELogs_Use(ItemTest, iActivator);
-										#endif
-										#if defined EW_MODULE_CHAT
-										if(ItemTest.Chat || ItemTest.Chat_Uses) EWM_Chat_Use(ItemTest, iActivator);
-										#endif
-										
-										ItemTest.Delay = 1;
-										ItemTest.Uses++;
-										g_ItemList.SetArray(i, ItemTest, sizeof(ItemTest));
-										return Plugin_Changed;
-									}
-								case 4:
-									if(ItemTest.Uses < ItemTest.MaxUses && ItemTest.CoolDownTime <= -1)
-									{
-										#if defined EW_MODULE_ELOGS
-										EWM_ELogs_Use(ItemTest, iActivator);
-										#endif
-										#if defined EW_MODULE_CHAT
-										if(ItemTest.Chat || ItemTest.Chat_Uses) EWM_Chat_Use(ItemTest, iActivator);
-										#endif
-										
-										ItemTest.Delay = 1;
-										ItemTest.CoolDownTime = ItemTest.CoolDown;
-										ItemTest.Uses++;
-										g_ItemList.SetArray(i, ItemTest, sizeof(ItemTest));
-										return Plugin_Changed;
-									}
-								case 5:
-									if(ItemTest.CoolDownTime <= -1)
-									{
-										#if defined EW_MODULE_ELOGS
-										EWM_ELogs_Use(ItemTest, iActivator);
-										#endif
-										#if defined EW_MODULE_CHAT
-										if(ItemTest.Chat || ItemTest.Chat_Uses) EWM_Chat_Use(ItemTest, iActivator);
-										#endif
-										
-										ItemTest.Delay = 1;
-										ItemTest.Uses++;
-										if(ItemTest.Uses >= ItemTest.MaxUses)
-										{
-											ItemTest.CoolDownTime = ItemTest.CoolDown;
-											ItemTest.Uses = 0;
-										}
-										g_ItemList.SetArray(i, ItemTest, sizeof(ItemTest));
-										return Plugin_Changed;
-									}
-								default: return Plugin_Changed;
-							}
-							return Plugin_Handled;
+									g_ItemList.SetArray(i, ItemTest, sizeof(ItemTest));
+									return Plugin_Changed;
+								}
+							default: return Plugin_Changed;
 						}
-						return Plugin_Changed;
+						//~~~~ Is this return needed (?) ~~~~
+						return Plugin_Handled;
 					}
 				}
 			}
 		}
 	}
 	return Plugin_Handled;
+}
+
+//-------------------------------------------------------
+//Purpose: Update item energy from math counter
+//-------------------------------------------------------
+public Action Event_OutValue(const char[] sOutput, int iCaller, int iActivator, float Delay)
+{
+	for(int i = 0; i < g_ItemList.Length; i++)
+	{
+		class_ItemList ItemTest;
+		g_ItemList.GetArray(i, ItemTest, sizeof(ItemTest));
+		if (ItemTest.MathID == iCaller)
+		{
+			int max = RoundFloat(GetEntPropFloat(iCaller, Prop_Data, "m_flMax"));
+			int value = GetCounterValue(iCaller);
+			if (ItemTest.Mode == 6) ItemTest.MathValue = value;
+			else if (ItemTest.Mode == 7) ItemTest.MathValue = (max - value);
+			ItemTest.MathValueMax = max;
+			g_ItemList.SetArray(i, ItemTest, sizeof(ItemTest));
+			return;
+		}
+	}
 }
 
 //-------------------------------------------------------
@@ -1061,7 +1189,7 @@ public Action OnWeaponDrop(int iClient, int iWeapon)
 				#endif
 				
 				#if defined EW_MODULE_CLANTAG
-				EWM_Clantag_Drop(ItemTest, iClient);
+				EWM_Clantag_Drop(iClient);
 				#endif
 					
 				break;
@@ -1105,7 +1233,7 @@ public Action OnWeaponEquip(int iClient, int iWeapon)
 {
 	if(g_bConfigLoaded && IsValidEdict(iWeapon))
 	{
-		for(int i = 0; i<g_ItemList.Length; i++)
+		for(int i = 0; i < g_ItemList.Length; i++)
 		{
 			class_ItemList ItemTest;
 			g_ItemList.GetArray(i, ItemTest, sizeof(ItemTest));
@@ -1326,7 +1454,7 @@ public Action EW_Command_Setmode(int iClient, int iArgs)
 	int iCooldown = StringToInt(sCooldown);
 	int iMaxUses = StringToInt(sMaxUses);
 	
-	if(iNewMode < 1 || iNewMode > 5) iNewMode = 1;
+	if(iNewMode < 1 || iNewMode > 7) iNewMode = 1;
 	if(iCooldown < 0) iCooldown = 0;
 	if(iMaxUses < 0) iMaxUses = 0;
 
@@ -1337,7 +1465,7 @@ public Action EW_Command_Setmode(int iClient, int iArgs)
 			g_ItemList.GetArray(i, ItemTest, sizeof(ItemTest));
 			if(ItemTest.HammerID == iHammerID)
 			{
-				if(ItemTest.MaxUses > ItemTest.Uses || bOver || iNewMode == 2 || iNewMode == 1)
+				if(ItemTest.MaxUses > ItemTest.Uses || bOver || iNewMode == 7 || iNewMode == 6 || iNewMode == 2 || iNewMode == 1)
 				{
 					ItemTest.Mode = iNewMode;
 					ItemTest.CoolDown = iCooldown;

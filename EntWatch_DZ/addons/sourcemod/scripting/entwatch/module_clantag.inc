@@ -106,6 +106,17 @@ public Action EWM_Clantag_Timer_UpdateClantag(Handle timer, int client)
 								FormatEx(buffer_temp, sizeof(buffer_temp), "%s[%d/%d]:", ItemTest.ShortName, ItemTest.Uses, ItemTest.MaxUses);
 							}
 						}
+						case 6, 7:
+						{
+							if (ItemTest.MathValue > 0)
+							{
+								FormatEx(buffer_temp, sizeof(buffer_temp), "%s[%d/%d]:", ItemTest.ShortName, ItemTest.MathValue, ItemTest.MathValueMax);
+							}
+							else
+							{
+								FormatEx(buffer_temp, sizeof(buffer_temp), "%s[E]:", ItemTest.ShortName);
+							}
+						}
 						default:
 						{
 							FormatEx(buffer_temp, sizeof(buffer_temp), "%s[N/A]:", ItemTest.ShortName);
@@ -142,17 +153,17 @@ stock void EWM_Clantag_PickUp(class_ItemList ItemTest, int iClient)
 	CS_SetClientContributionScore(iClient, 9999);
 }
 
-stock void EWM_Clantag_Drop(class_ItemList ItemTest, int iClient)
+stock void EWM_Clantag_Drop(int iClient)
 {
 	EWM_Clantag_Reset(iClient);
 }
 
-stock void EWM_Clantag_PlayerDeath(class_ItemList ItemTest, int iClient)
+stock void EWM_Clantag_PlayerDeath(int iClient)
 {
 	EWM_Clantag_Reset(iClient);
 }
 
-stock void EWM_Clantag_PlayerDeath_Drop(class_ItemList ItemTest, int iClient)
+stock void EWM_Clantag_PlayerDeath_Drop(int iClient)
 {
 	EWM_Clantag_Reset(iClient);
 }
